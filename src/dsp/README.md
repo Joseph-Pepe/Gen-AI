@@ -125,7 +125,7 @@ auto reconstructed_pcm = stft.inverse(complex_spec, pcm_audio.size());
 
 ---
 
-## ✂️ Phase 6: Frequency-Domain 4-Stem Audio Source Separation
+## ✂️ Phase 6 contd: Frequency-Domain 4-Stem Audio Source Separation
 
 The `crescendo::dsp::wiener_filter` and `crescendo::models::stem_unet` modules implement the audio demixing engine responsible for isolating individual instruments from mixed master recordings.
 

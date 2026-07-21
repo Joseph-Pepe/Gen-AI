@@ -154,7 +154,7 @@ target_sources(crescendo_audio_io
         FILES 
             src/audio/io/wav_writer.cppm
 )
-target_link_libraries(crescendo_audio_io PRIVATE project_warnings)
+target_link_libraries(crescendo_audio_io PUBLIC crescendo_tensor PRIVATE project_warnings)
 target_enable_cxx26(crescendo_audio_io)
 
 # 8. Main CLI Executable
