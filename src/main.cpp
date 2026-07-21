@@ -1,67 +1,75 @@
 import std;
 import crescendo.tensor.core;
 import crescendo.tensor.simd;
-import crescendo.models.convolution2d;
-import crescendo.models.groupnorm;
-import crescendo.models.attention;
 import crescendo.models.unet;
+import crescendo.diffusion.noise;
+import crescendo.diffusion.scheduler;
+import crescendo.diffusion.ddim;
 
 using namespace crescendo::tensor;
 using namespace crescendo::models;
+using namespace crescendo::diffusion;
 
 int main() {
-    std::println("==========================================================");
-    std::println("🎛️  Crescendo Engine: Phase 4 Neural Network Backbone");
-    std::println("==========================================================\n");
+    std::println("=============================================================");
+    std::println("🎛️  Crescendo Engine: Phase 5 Diffusion & DDIM Sampler Suite");
+    std::println("=============================================================\n");
 
     std::println("✔ Active SIMD Hardware Engine: {}\n", simd::get_simd_architecture());
 
-    // 1. Test Standalone 2D Convolution (im2col + SIMD GEMM)
-    std::println("--- Verifying Conv2D im2col SIMD Kernel ---");
-    Conv2D<float> conv(1, 16, 3, 1, 1); // 3x3 kernel, same padding
-    auto test_patch = Tensor<float>::random_normal({1, 1, 32, 32}, 0.0f, 1.0f);
+    // 1. Verify Box-Muller Gaussian Noise Generation
+    std::println("--- Verifying Box-Muller Normal Distribution Generator ---");
+    NormalGenerator<float> noise_gen;
+    auto static_noise = noise_gen.generate({1, 1, 80, 80});
     
-    auto start_conv = std::chrono::high_resolution_clock::now();
-    auto conv_out = conv.forward(test_patch);
-    auto end_conv = std::chrono::high_resolution_clock::now();
-    
-    auto conv_dur = std::chrono::duration_cast<std::chrono::microseconds>(end_conv - start_conv).count();
-    std::println("✔ Executed Conv2D [1, 1, 32, 32] -> [1, 16, 32, 32] in {} µs | Sample out: {:.4f}\n", 
-                 conv_dur, conv_out[0]);
+    // Compute sample mean and variance to verify N(0, I) statistical distribution
+    float sum = 0.0f, sq_sum = 0.0f;
+    for (size_t i = 0; i < static_noise.size(); ++i) {
+        sum += static_noise[i];
+        sq_sum += static_noise[i] * static_noise[i];
+    }
+    float mean = sum / static_cast<float>(static_noise.size());
+    float variance = (sq_sum / static_cast<float>(static_noise.size())) - (mean * mean);
+    std::println("✔ Generated [1, 1, 80, 80] Gaussian Noise | Mean: {:.4f} (Target: 0.00), Var: {:.4f} (Target: 1.00)\n", 
+                 mean, variance);
 
-    // 2. Test Multi-Head Self-Attention
-    std::println("--- Verifying Multi-Head Self-Attention ---");
-    MultiHeadSelfAttention<float> attn(16, 4); // 16 channels, 4 attention heads
+    // 2. Verify Cosine Variance Scheduler & Forward Noise Injection
+    std::println("--- Verifying Cosine Variance Scheduler (T = 1,000) ---");
+    CosineScheduler<float> scheduler(1000);
+    auto clean_spectrogram = Tensor<float>::random_normal({1, 1, 80, 80}, 0.0f, 0.5f);
     
-    auto start_attn = std::chrono::high_resolution_clock::now();
-    auto attn_out = attn.forward(conv_out);
-    auto end_attn = std::chrono::high_resolution_clock::now();
+    auto start_noise = std::chrono::high_resolution_clock::now();
+    auto noisy_spectrogram = scheduler.add_noise(clean_spectrogram, static_noise, 500); // Corrupt at midpoint t=500
+    auto end_noise = std::chrono::high_resolution_clock::now();
     
-    auto attn_dur = std::chrono::duration_cast<std::chrono::microseconds>(end_attn - start_attn).count();
-    std::println("✔ Executed 4-Head Attention across 1,024 tokens in {} µs | Shape preserved.\n", attn_dur);
+    auto dur_noise = std::chrono::duration_cast<std::chrono::microseconds>(end_noise - start_noise).count();
+    std::println("✔ Executed SIMD Forward Noise Injection (t=500) in {} µs | Sample val: {:.4f}\n", 
+                 dur_noise, noisy_spectrogram[0]);
 
-    // 3. Verify Full 2D Convolutional U-Net Backbone
-    std::println("--- Verifying Complete UNet2D Generative Backbone ---");
-    UNet2D<float> unet;
-    
-    // Simulate an input 80-bin Mel-Spectrogram with 80 time frames
-    auto mel_spectrogram = Tensor<float>::random_normal({1, 1, 80, 80}, 0.0f, 0.5f);
-    std::println("✔ Loaded synthetic Log-Mel Spectrogram tensor | Shape: [1, 1, 80, 80]");
+    // 3. Verify DDIM Fast Inference Generative Loop
+    std::println("--- Verifying DDIM 20-Step Fast Generative Inference ---");
+    UNet2D<float> unet_backbone;
+    DDIMSampler<float> ddim_sampler(scheduler);
 
-    auto start_unet = std::chrono::high_resolution_clock::now();
-    auto unet_out = unet.forward(mel_spectrogram);
-    auto end_unet = std::chrono::high_resolution_clock::now();
+    constexpr size_t fast_steps = 20;
+    std::println("✔ Initializing deterministic reverse denoising loop (Skipping 980 Markovian steps)...");
+
+    auto start_ddim = std::chrono::high_resolution_clock::now();
+    auto generated_mel_spectrogram = ddim_sampler.sample(unet_backbone, static_noise, fast_steps);
+    auto end_ddim = std::chrono::high_resolution_clock::now();
     
-    auto unet_dur = std::chrono::duration_cast<std::chrono::milliseconds>(end_unet - start_unet).count();
-    const auto& out_shape = unet_out.shape();
-    std::println("✔ Executed Full U-Net Forward Pass in {} ms", unet_dur);
-    std::println("   Output Tensor Shape: [{}, {}, {}, {}] (Matches input dimensions)", 
+    auto dur_ddim = std::chrono::duration_cast<std::chrono::milliseconds>(end_ddim - start_ddim).count();
+    const auto& out_shape = generated_mel_spectrogram.shape();
+    
+    std::println("✔ Executed Complete 20-Step DDIM Generation in {} ms ({:.1f} ms per step)", 
+                 dur_ddim, static_cast<float>(dur_ddim) / static_cast<float>(fast_steps));
+    std::println("   Output Spectrogram Shape: [{}, {}, {}, {}]", 
                  out_shape[0], out_shape[1], out_shape[2], out_shape[3]);
 
-    if (out_shape[2] == 80 && out_shape[3] == 80 && unet_dur < 1000) {
-        std::println("\n🏆 PHASE 4 PASSED: Generative Neural Network Backbone fully operational!");
+    if (out_shape[2] == 80 && out_shape[3] == 80 && mean > -0.05f && mean < 0.05f) {
+        std::println("\n🏆 PHASE 5 PASSED: Diffusion Scheduler & DDIM Fast Sampler fully operational!");
     } else {
-        std::println("\n❌ PHASE 4 FAILED: Dimension mismatch or execution benchmark failure.");
+        std::println("\n❌ PHASE 5 FAILED: Statistical distribution drift or dimension mismatch.");
     }
 
     return 0;

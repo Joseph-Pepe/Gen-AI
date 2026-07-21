@@ -107,6 +107,20 @@ target_sources(crescendo_models
 target_link_libraries(crescendo_models PUBLIC crescendo_dsp crescendo_tensor PRIVATE project_warnings)
 target_enable_cxx26(crescendo_models)
 
+# Create the Diffusion library containing Box-Muller Noise, Cosine Scheduler, and DDIM Sampler modules
+add_library(crescendo_diffusion)
+target_sources(crescendo_diffusion
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES 
+            src/diffusion/noise.cppm
+            src/diffusion/scheduler.cppm
+            src/diffusion/ddim.cppm
+)
+# Link the main executable against all completed engine modules
+target_link_libraries(crescendo_diffusion PUBLIC crescendo_tensor crescendo_models PRIVATE project_warnings simd_optimizations)
+target_enable_cxx26(crescendo_diffusion)
+
 # Audio I/O & Interactive Editor Engine
 add_library(crescendo_audio STATIC
     src/audio/editor.cpp
@@ -128,6 +142,7 @@ target_link_libraries(crescendo PRIVATE
     crescendo_audio 
     crescendo_dsp 
     crescendo_tensor
+    crescendo_diffusion
     project_warnings
 )
 target_enable_cxx26(crescendo) # Applied MSVC-safe C++26
