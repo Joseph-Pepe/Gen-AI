@@ -9,13 +9,11 @@
 
 ---
 
-## 📖 Executive Summary
+## 🗺️ Architectural Roadmap
 
 Modern AI audio suites are bogged down by gigabytes of Python dependencies, heavy ML frameworks (PyTorch, TensorFlow), complex build chains, and sluggish runtime interpretation. **Crescendo Engine** proves that state-of-the-art generative audio and digital signal processing (DSP) can be achieved from first principles.
 
 By writing a custom multidimensional tensor engine, auto-differentiation graph, frequency-domain neural networks, and raw binary file parsers in pure C++, Crescendo delivers **maximum computational throughput**, **minimal memory footprint**, and **real-time interactive editing** without a single external library.
-
-🗺️ Architectural Roadmap
 
 [x] Phase 1: Custom Tensor Library & Auto-differentiation engine.
 
