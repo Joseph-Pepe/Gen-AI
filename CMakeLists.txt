@@ -69,8 +69,6 @@ target_enable_cxx26(crescendo_tensor)
 
 # Digital Signal Processing (DSP) Library
 add_library(crescendo_dsp STATIC
-    src/dsp/stft.cpp
-    src/dsp/mel_filterbank.cpp
     src/dsp/griffin_lim.cpp
 )
 
@@ -79,6 +77,8 @@ target_sources(crescendo_dsp
     PUBLIC
         FILE_SET CXX_MODULES
         FILES src/dsp/fast_fourier_transform.cppm
+        src/dsp/short_time_fourier_transform.cppm
+        src/dsp/mel_filterbank.cppm
 )
 target_link_libraries(crescendo_dsp PUBLIC crescendo_tensor PRIVATE project_warnings simd_optimizations)
 target_enable_cxx26(crescendo_dsp)

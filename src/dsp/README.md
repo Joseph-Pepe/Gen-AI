@@ -53,3 +53,72 @@ import std;
 import crescendo.dsp.fast_fourier_transform;
 
 using namespace crescendo::dsp;
+```
+
+---
+
+## 🌊 Phase 2: Short-Time Fourier Transform (STFT) & Log-Mel Filterbank
+
+The `crescendo::dsp::stft` and `crescendo::dsp::mel_filterbank` modules form the data preprocessing bridge between raw 1D time-domain PCM audio and 2D neural-network-ready representations.
+
+Because human hearing perceives pitch logarithmically—with high sensitivity to low-frequency intervals and lower sensitivity at high frequencies—feeding raw linear FFT bins into an AI model wastes computational capacity. This module slices continuous audio into overlapping windowed frames, extracts frequency spectras, and projects linear magnitudes onto a perceptual **Log-Mel Spectrogram matrix**.
+
+### ✨ Key Features
+
+* **Zero-Dependency 2D Spectrogram Engine:** Built entirely from scratch in ISO C++26 using contiguous vectors and custom matrix multiplication kernels.
+* **Hanning Window Precomputation:** Caches von Hann trigonometric curve weights during class instantiation to eliminate spectral leakage without runtime calculation overhead.
+* **Weighted Overlap-Add (WOLA) Reconstruction:** Reverses 2D complex spectrograms back into 1D playable PCM audio arrays with energy normalization, preventing amplitude distortion across overlapping frame boundaries.
+* **Sparse Triangular Filterbank Matrix:** Dynamically constructs mapping matrices $B \in \mathbb{R}^{M \times K}$ to compress 513 linear frequency bins into compact 80-bin or 128-bin Mel representations.
+* **Neural Network Normalization:** Automatically applies natural logarithm compression $L = \log(S + \epsilon)$ and linearly scales output tokens to strictly sit within the $[-1.0, 1.0]$ range required for diffusion and transformer training.
+
+### 🧮 Mathematical Foundation
+
+#### 1. Mel-Scale Frequency Conversion
+To map linear frequencies ($f$ in Hz) onto the perceptual Mel scale ($m$), the engine applies the standard acoustic conversion formula:
+
+$$m = 2595 \cdot \log_{10}\left(1 + \frac{f}{700}\right)$$
+
+#### 2. Log-Mel Filterbank Matrix Multiplication
+Given a linear magnitude spectrogram frame $S \in \mathbb{R}^{K}$ (where $K = \frac{N}{2} + 1$), the Mel energy vector $M \in \mathbb{R}^{M}$ is computed via matrix dot product against the triangular filterbank matrix $B$:
+
+$$M = B \cdot S$$
+
+The dynamic range is then logarithmically compressed to prevent variance dominance:
+
+$$L = \log(M + \epsilon)$$
+
+### 🚀 Usage Example
+
+```cpp
+import std;
+import crescendo.dsp.stft;
+import crescendo.dsp.mel_filterbank;
+
+using namespace crescendo::dsp;
+
+// 1. Configure audio parameters
+constexpr size_t sample_rate = 44100;
+constexpr size_t fft_size = 1024;
+constexpr size_t hop_size = 256;    // 75% window overlap
+constexpr size_t mel_bins = 80;     // Standard AI resolution
+
+// 2. Instantiate Phase 2 engines
+auto stft = ShortTimeFourierTransform<float>(fft_size, hop_size);
+auto mel_bank = MelFilterbank<float>(mel_bins, fft_size, sample_rate, 20.0f, 8000.0f);
+
+// 3. Convert 1D PCM audio to a 2D Log-Mel Spectrogram
+std::vector<float> pcm_audio = /* ... load audio samples ... */;
+auto complex_spec = stft.forward(pcm_audio);
+
+// Extract linear magnitudes and convert to neural network tokens [-1.0, 1.0]
+std::vector<std::vector<float>> linear_mag(complex_spec.size(), std::vector<float>(stft.num_bins()));
+for (size_t f = 0; f < complex_spec.size(); ++f) {
+    for (size_t b = 0; b < stft.num_bins(); ++b) {
+        linear_mag[f][b] = std::abs(complex_spec[f][b]);
+    }
+}
+auto log_mel_tokens = mel_bank.to_log_mel(linear_mag);
+
+// 4. Reconstruct clean 1D PCM audio from spectrogram frames
+auto reconstructed_pcm = stft.inverse(complex_spec, pcm_audio.size());
+```
