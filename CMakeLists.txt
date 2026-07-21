@@ -57,15 +57,20 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # 7. Core Modular Libraries (Built from scratch, zero dependencies)
 
-# Tensor & Auto-Differentiation Library
-add_library(crescendo_tensor STATIC
-    src/tensor/tensor.cpp
-    src/tensor/autograd.cpp
-    src/tensor/simd_ops.cpp
-    src/tensor/optimizer.cpp
+# Create the Tensor library containing SIMD, Tensor, Autograd, and AdamW modules
+add_library(crescendo_tensor)
+target_sources(crescendo_tensor
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES 
+            src/tensor/tensor.cppm
+            src/tensor/autograd.cppm
+            src/tensor/simd_ops.cppm
+            src/tensor/optimizer.cppm
 )
+
 target_link_libraries(crescendo_tensor PRIVATE project_warnings simd_optimizations)
-target_enable_cxx26(crescendo_tensor) 
+target_enable_cxx26(crescendo_tensor)
 
 # Digital Signal Processing (DSP) Library
 add_library(crescendo_dsp STATIC
@@ -76,9 +81,10 @@ add_library(crescendo_dsp STATIC
 target_sources(crescendo_dsp
     PUBLIC
         FILE_SET CXX_MODULES
-        FILES src/dsp/fast_fourier_transform.cppm
-        src/dsp/short_time_fourier_transform.cppm
-        src/dsp/mel_filterbank.cppm
+        FILES 
+            src/dsp/fast_fourier_transform.cppm
+            src/dsp/short_time_fourier_transform.cppm
+            src/dsp/mel_filterbank.cppm
 )
 target_link_libraries(crescendo_dsp PUBLIC crescendo_tensor PRIVATE project_warnings simd_optimizations)
 target_enable_cxx26(crescendo_dsp)

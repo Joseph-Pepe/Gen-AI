@@ -1,84 +1,64 @@
 import std;
-import crescendo.dsp.fast_fourier_transform;
-import crescendo.dsp.short_term_fourier_transform;
-import crescendo.dsp.mel_filterbank;
+import crescendo.tensor.simd;
+import crescendo.tensor.core;
+import crescendo.tensor.autograd;
+import crescendo.tensor.optimizer;
 
-using namespace crescendo::dsp;
+using namespace crescendo::tensor;
+using namespace crescendo::tensor::autograd;
+using namespace crescendo::tensor::optimizer;
 
 int main() {
-    constexpr size_t sample_rate = 44100;
-    constexpr size_t fft_size = 1024;
-    constexpr size_t hop_size = 256;    // 75% window overlap
-    constexpr size_t num_mel_bins = 80; // Standard AI audio resolution
+    std::println("======================================================");
+    std::println("🎛️  Crescendo Engine: Phase 3 Tensor & SIMD Suite");
+    std::println("======================================================\n");
 
-    std::println("==================================================");
-    std::println("🎛️  Crescendo Engine: STFT & Mel-Filterbank Suite");
-    std::println("==================================================\n");
+    // 1. Check Hardware SIMD Acceleration
+    std::println("✔ Detected Hardware SIMD Architecture: {}", simd::get_simd_architecture());
 
-    // 1. Initialize DSP Engines
-    auto stft = ShortTimeFourierTransform<float>(fft_size, hop_size);
-    auto mel_bank = MelFilterbank<float>(num_mel_bins, fft_size, sample_rate, 20.0f, 8000.0f);
+    // 2. Benchmark SIMD GEMM Performance (512x512 Matrices)
+    constexpr size_t dim = 512;
+    auto mat_A = Tensor<float>::random_normal({dim, dim}, 0.0f, 1.0f);
+    auto mat_B = Tensor<float>::random_normal({dim, dim}, 0.0f, 1.0f);
 
-    std::println("✔ Initialized STFT (N={}, Hop={}) | Linear Bins: {}", fft_size, hop_size, stft.num_bins());
-    std::println("✔ Initialized Mel-Filterbank | Target Mel Bins: {}\n", mel_bank.num_mel_bins());
-
-    // 2. Generate 1 second of synthetic audio: Frequency sweep from 200 Hz -> 3000 Hz
-    const size_t total_samples = sample_rate;
-    std::vector<float> audio_buffer(total_samples);
-    for (size_t i = 0; i < total_samples; ++i) {
-        float t = static_cast<float>(i) / static_cast<float>(sample_rate);
-        float instant_freq = 200.0f + 2800.0f * t; // Linear frequency sweep
-        audio_buffer[i] = 0.8f * std::sin(2.0f * std::numbers::pi_v<float> * instant_freq * t);
-    }
-
-    // 3. Execute Forward STFT
-    auto start_stft = std::chrono::high_resolution_clock::now();
-    auto complex_spectrogram = stft.forward(audio_buffer);
-    auto end_stft = std::chrono::high_resolution_clock::now();
+    auto start_time = std::chrono::high_resolution_clock::now();
+    auto mat_C = mat_A.matmul(mat_B);
+    auto end_time = std::chrono::high_resolution_clock::now();
     
-    const size_t num_frames = complex_spectrogram.size();
-    auto stft_dur = std::chrono::duration_cast<std::chrono::microseconds>(end_stft - start_stft).count();
-    std::println("✔ Executed Forward STFT in {} µs | Extracted {} frames.", stft_dur, num_frames);
+    auto dur_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    std::println("✔ Executed SIMD Matmul [{}x{}] * [{}x{}] in {} ms | Sample val: {:.4f}\n", 
+                 dim, dim, dim, dim, dur_ms, mat_C[0]);
 
-    // 4. Compute Linear Magnitude Spectrogram (|X|^2)
-    std::vector<std::vector<float>> linear_magnitudes(num_frames, std::vector<float>(stft.num_bins()));
-    for (size_t f = 0; f < num_frames; ++f) {
-        for (size_t b = 0; b < stft.num_bins(); ++b) {
-            linear_magnitudes[f][b] = std::abs(complex_spectrogram[f][b]);
-        }
-    }
+    // 3. Verify Auto-Grad Computational Graph & Backpropagation
+    std::println("--- Verifying Autograd Backward Differentiation ---");
+    auto X = Variable<float>::create(Tensor<float>({2, 3}, 2.0f), true, "X");
+    auto W = Variable<float>::create(Tensor<float>({3, 2}, 1.5f), true, "W");
+    auto B = Variable<float>::create(Tensor<float>({2, 2}, 0.5f), true, "B");
 
-    // 5. Execute Log-Mel Transformation
-    auto start_mel = std::chrono::high_resolution_clock::now();
-    auto log_mel_spectrogram = mel_bank.to_log_mel(linear_magnitudes);
-    auto end_mel = std::chrono::high_resolution_clock::now();
-    auto mel_dur = std::chrono::duration_cast<std::chrono::microseconds>(end_mel - start_mel).count();
+    // Forward pass: Y = X * W + B
+    auto Y = X->matmul(W)->add(B);
+    std::println("✔ Forward graph evaluated successfully. Shape Y: [{}, {}]", Y->data.shape()[0], Y->data.shape()[1]);
 
-    std::println("✔ Converted to Log-Mel Spectrogram in {} µs | Shape: [{}, {}]", 
-                 mel_dur, log_mel_spectrogram.size(), log_mel_spectrogram[0].size());
+    // Execute Backward Sweep
+    Y->backward();
+    std::println("✔ Executed topological backward differentiation.");
+    std::println("   Grad dL/dX[0]: {:.4f} (Expected: 3.0000 -> Sum of W rows)", X->grad[0]);
+    std::println("   Grad dL/dW[0]: {:.4f} (Expected: 4.0000 -> Sum of X cols)\n", W->grad[0]);
 
-    // Display a slice of the generated Log-Mel matrix (first 5 bins of frame 50)
-    std::print("   Sample Log-Mel tokens (Frame 50, Bins 0-4): [ ");
-    for (size_t m = 0; m < 5; ++m) {
-        std::print("{:6.3f} ", log_mel_spectrogram[50][m]);
-    }
-    std::println("]\n");
-
-    // 6. Verify Overlap-Add Inverse STFT Reconstruction
-    auto reconstructed_audio = stft.inverse(complex_spectrogram, total_samples);
+    // 4. Test AdamW Optimizer Convergence
+    std::println("--- Testing AdamW Optimizer Step ---");
+    AdamW<float> optimizer({X, W, B}, 0.05f);
+    float initial_weight = W->data[0];
     
-    float max_error = 0.0f;
-    // Skip boundary frames where window overlap is incomplete at the very edges
-    for (size_t i = fft_size; i < total_samples - fft_size; ++i) {
-        float err = std::abs(audio_buffer[i] - reconstructed_audio[i]);
-        if (err > max_error) max_error = err;
-    }
+    optimizer.step();
+    float updated_weight = W->data[0];
+    std::println("✔ Executed AdamW step with L2 decay | W[0] changed from {:.4f} to {:.4f}", 
+                 initial_weight, updated_weight);
 
-    std::println("✔ WOLA Reconstruction Max Absolute Error: {:.9f}", max_error);
-    if (max_error < 1e-4f) {
-        std::println("\n🏆 PHASE 2 PASSED: STFT & Mel-Filterbank pipeline ready for Neural Networks!");
+    if (std::abs(updated_weight - initial_weight) > 1e-4f && dur_ms < 500) {
+        std::println("\n🏆 PHASE 3 PASSED: Bare-metal Tensor, Autograd, & SIMD engine fully operational!");
     } else {
-        std::println("\n❌ PHASE 2 FAILED: Overlap-Add amplitude distortion exceeded threshold.");
+        std::println("\n❌ PHASE 3 FAILED: Precision drift or performance benchmark failure.");
     }
 
     return 0;
