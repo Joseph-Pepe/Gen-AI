@@ -5,8 +5,17 @@ import crescendo.tensor.simd;
 
 export namespace crescendo::tensor {
 
+    /**
+     * @brief Custom C++26 concept allowing real floating-point and complex data types.
+     * Instantiating Tensor<std::complex<float>>.
+     */
+    template <typename T>
+    concept TensorScalar = std::floating_point<T> || 
+                           std::same_as<T, std::complex<float>> || 
+                           std::same_as<T, std::complex<double>>;
+
     // Manages contiguous memory storage, shape dimensions, striding vectors, matrix broadcasting.
-    template <std::floating_point T = float>
+    template <TensorScalar T = float>
     class Tensor {
     public:
         Tensor() = default;
@@ -17,7 +26,7 @@ export namespace crescendo::tensor {
             data_.assign(total_elements_, initial_val);
         }
 
-        static Tensor random_normal(const std::vector<size_t>& shape, T mean = T{0.0}, T stddev = T{0.02}) {
+        static Tensor random_normal(const std::vector<size_t>& shape, T mean = T{0.0}, T stddev = T{0.02}) requires std::floating_point<T> {
             Tensor t(shape);
             std::random_device rd;
             std::mt19937 gen(rd());
@@ -101,7 +110,7 @@ export namespace crescendo::tensor {
         }
 
         // GELU activation
-        void apply_gelu_inplace() noexcept {
+        void apply_gelu_inplace() noexcept requires std::floating_point<T>{
             if constexpr (std::is_same_v<T, float>) {
                 simd::gelu_f32(data_.data(), data_.data(), total_elements_);
             }

@@ -1,72 +1,80 @@
 import std;
 import crescendo.tensor.core;
-import crescendo.models.unet;
-import crescendo.diffusion.scheduler;
-import crescendo.diffusion.ddim;
-import crescendo.dsp.griffin_lim;
-import crescendo.audio.io.wav_writer;
+import crescendo.tensor.simd;
+import crescendo.models.stem_unet;
+import crescendo.dsp.wiener_filter;
 
 using namespace crescendo::tensor;
 using namespace crescendo::models;
-using namespace crescendo::diffusion;
 using namespace crescendo::dsp;
-using namespace crescendo::io;
 
 int main() {
-    std::println("=============================================================");
-    std::println("🎛️  Crescendo Engine: Phase 6 Vocoder & Audio Export Suite");
-    std::println("=============================================================\n");
+    std::println("====================================================================");
+    std::println("🎛️  Crescendo Engine: Phase 6 Contd.. 4-Stem Wiener Separation Suite");
+    std::println("=====================================================================\n");
 
-    // 1. Instantiate the generative modules (Phases 4 & 5)
-    UNet2D<float> unet_backbone;
-    CosineScheduler<float> scheduler(1000);
-    DDIMSampler<float> ddim_sampler(scheduler);
+    std::println("✔ Active SIMD Hardware Acceleration: {}\n", simd::get_simd_architecture());
 
-    // Generate a mock synthetic Mel filterbank reference grid [80 x 1025]
-    Tensor<float> mock_filterbank({80, 1025});
-    mock_filterbank.zero_();
-    for (size_t m = 0; m < 80; ++m) {
-        mock_filterbank[{m, m * 12}] = 1.0f; // Diagonal identity mapping distribution
+    constexpr size_t bins = 80;
+    constexpr size_t frames = 80;
+
+    // 1. Create synthetic complex mixture STFT spectrogram [1, 1, 80, 80]
+    std::println("--- Generating Synthetic Complex Audio Mixture ---");
+    Tensor<std::complex<float>> complex_mix({1, 1, bins, frames});
+    Tensor<float> mixture_magnitude({1, 1, bins, frames});
+
+    for (size_t i = 0; i < complex_mix.size(); ++i) {
+        float real_part = std::sin(static_cast<float>(i) * 0.1f) * 10.0f;
+        float imag_part = std::cos(static_cast<float>(i) * 0.1f) * 10.0f;
+        complex_mix.data()[i] = std::complex<float>(real_part, imag_part);
+        mixture_magnitude.data()[i] = std::abs(complex_mix.data()[i]);
+    }
+    std::println("✔ Complex mixture STFT instantiated | Total Spectrogram Bins: {}\n", complex_mix.size());
+
+    // 2. Predict 4 Stem Masks using UNet4StemSeparation
+    std::println("--- Executing 4-Stem U-Net Mask Prediction ---");
+    UNet4StemSeparation<float> sep_unet;
+    
+    auto start_unet = std::chrono::high_resolution_clock::now();
+    std::array<Tensor<float>, 4> stem_masks = sep_unet.forward_masks(mixture_magnitude);
+    auto end_unet = std::chrono::high_resolution_clock::now();
+    
+    std::println("✔ Predicted 4 independent Soft-Masks in {} ms",
+                 std::chrono::duration_cast<std::chrono::milliseconds>(end_unet - start_unet).count());
+    std::println("   Stem 0 (Vocals) Mask Sample: {:.4f}", stem_masks[0].data()[0]);
+    std::println("   Stem 1 (Drums)  Mask Sample: {:.4f}", stem_masks[1].data()[0]);
+    std::println("   Stem 2 (Bass)   Mask Sample: {:.4f}", stem_masks[2].data()[0]);
+    std::println("   Stem 3 (Other)  Mask Sample: {:.4f}\n", stem_masks[3].data()[0]);
+
+    // 3. Execute SIMD Multi-Channel Wiener Filtering
+    std::println("--- Applying SIMD Multi-Channel Wiener Filtering ---");
+    WienerFilter4Stem<float> wiener;
+
+    auto start_wiener = std::chrono::high_resolution_clock::now();
+    auto separated_stems = wiener.separate(complex_mix, stem_masks);
+    auto end_wiener = std::chrono::high_resolution_clock::now();
+
+    std::println("✔ Executed SIMD 4-Stem Wiener Separation in {} µs\n",
+                 std::chrono::duration_cast<std::chrono::microseconds>(end_wiener - start_wiener).count());
+
+    // 4. Verify Energy Conservation: Sum(Stems) == Mixture
+    std::println("--- Verifying Wiener Energy Conservation & Phase Coherence ---");
+    float max_reconstruction_error = 0.0f;
+    for (size_t i = 0; i < complex_mix.size(); ++i) {
+        std::complex<float> reconstructed = separated_stems[0].data()[i] + 
+                                            separated_stems[1].data()[i] + 
+                                            separated_stems[2].data()[i] + 
+                                            separated_stems[3].data()[i];
+        float err = std::abs(complex_mix.data()[i] - reconstructed);
+        if (err > max_reconstruction_error) max_reconstruction_error = err;
     }
 
-    std::println("--- Running Generative Audio Diffusion Model ---");
-    Tensor<float> latent_seed = Tensor<float>::random_normal({1, 1, 80, 60}, 0.0f, 1.0f);
-    
-    auto start_gen = std::chrono::high_resolution_clock::now();
-    auto generated_mel = ddim_sampler.sample(unet_backbone, latent_seed, 25);
-    auto end_gen = std::chrono::high_resolution_clock::now();
-    
-    std::println("✔ Generated Mel Spectrogram Matrix in {} ms",
-                 std::chrono::duration_cast<std::chrono::milliseconds>(end_gen - start_gen).count());
+    std::println("✔ Maximum Complex Reconstruction Error across all stems: {:.9f}", max_reconstruction_error);
 
-    // 2. Execute Phase 6 Phase Reconstruction Vocoder
-    std::println("\n--- Initializing Phase 6 Griffin-Lim Vocoder Loop ---");
-    GriffinLimVocoder<float> vocoder(2048, 512);
-
-    auto start_vocode = std::chrono::high_resolution_clock::now();
-    auto linear_magnitude = vocoder.invert_mel_filterbank(generated_mel, mock_filterbank);
-    std::println("✔ Linear frequency conversion completed. Grid size: [1, 1, 1025, 60]");
-    
-    std::println("✔ Reconstructing phase maps (60 GL Iterations)...");
-    auto audio_waveform = vocoder.reconstruct(linear_magnitude, 60);
-    auto end_vocode = std::chrono::high_resolution_clock::now();
-
-    std::println("✔ Vocoder synthesis loop finished in {} ms",
-                 std::chrono::duration_cast<std::chrono::milliseconds>(end_vocode - start_vocode).count());
-
-    // 3. Export to Wave Container
-    std::println("\n--- Serializing Raw PCM Floating Buffers to Hard Drive ---");
-    std::string output_path = "ai_generated_track.wav";
-    
-    bool export_success = crescendo::io::WavExporter::write_wav(output_path, audio_waveform, 44100);
-
-    if (export_success) {
-        std::println("✔ File successfully compiled: {}", output_path);
-        std::println("   Total samples: {} | Duration: {:.2f} seconds", 
-                     audio_waveform.size(), static_cast<double>(audio_waveform.size()) / 44100.0);
-        std::println("\n🏆 PHASE 6 PASSED: End-To-End Generative Audio Synthesis Complete!");
+    if (max_reconstruction_error < 1e-4f) {
+        std::println("\n🏆 PHASE 6 PASSED: 4-Stem Wiener Audio Separation Engine fully operational!");
     } else {
-        std::println("\n❌ PHASE 6 FAILED: Unable to allocate binary IO file stream handle.");
+        std::println("\n❌ PHASE 6 FAILED: Energy loss or phase distortion exceeded threshold.");
     }
 
     return 0;

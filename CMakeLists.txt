@@ -15,7 +15,7 @@ function(target_enable_cxx26 TARGET_NAME)
     if(MSVC)
         # /std:c++latest enables C++26 draft features
         # /Zc:__cplusplus forces MSVC to report the REAL C++ standard value instead of 199711
-        target_compile_options(${TARGET_NAME} PRIVATE /std:c++latest /Zc:__cplusplus)
+        target_compile_options(${TARGET_NAME} PRIVATE /std:c++latest /Zc:__cplusplus /fp:precise)
         # Fall back to cxx_std_23 in CMake's table so MSVC doesn't reject the build
         target_compile_features(${TARGET_NAME} PRIVATE cxx_std_23)
     else()
@@ -125,6 +125,18 @@ target_sources(crescendo_dsp_vocoder
 target_link_libraries(crescendo_dsp_vocoder PUBLIC crescendo_tensor crescendo_dsp PRIVATE project_warnings simd_optimizations)
 target_enable_cxx26(crescendo_dsp_vocoder)
 
+# Add DSP Separation & Wiener Filter module library
+add_library(crescendo_dsp_separation STATIC)
+target_sources(crescendo_dsp_separation
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES 
+            src/dsp/wiener_filter.cppm
+            src/models/stem_unet.cppm
+)
+target_link_libraries(crescendo_dsp_separation PUBLIC crescendo_tensor crescendo_models PRIVATE project_warnings simd_optimizations)
+target_enable_cxx26(crescendo_dsp_separation)
+
 # Audio I/O & Interactive Editor Engine
 add_library(crescendo_audio STATIC
     src/audio/editor.cpp
@@ -157,6 +169,7 @@ target_link_libraries(crescendo PRIVATE
     crescendo_audio_io
     crescendo_dsp_vocoder
     crescendo_dsp 
+    crescendo_dsp_separation
     crescendo_tensor
     crescendo_diffusion
     project_warnings
