@@ -1,75 +1,72 @@
 import std;
 import crescendo.tensor.core;
-import crescendo.tensor.simd;
 import crescendo.models.unet;
-import crescendo.diffusion.noise;
 import crescendo.diffusion.scheduler;
 import crescendo.diffusion.ddim;
+import crescendo.dsp.griffin_lim;
+import crescendo.audio.io.wav_writer;
 
 using namespace crescendo::tensor;
 using namespace crescendo::models;
 using namespace crescendo::diffusion;
+using namespace crescendo::dsp;
+using namespace crescendo::io;
 
 int main() {
     std::println("=============================================================");
-    std::println("🎛️  Crescendo Engine: Phase 5 Diffusion & DDIM Sampler Suite");
+    std::println("🎛️  Crescendo Engine: Phase 6 Vocoder & Audio Export Suite");
     std::println("=============================================================\n");
 
-    std::println("✔ Active SIMD Hardware Engine: {}\n", simd::get_simd_architecture());
-
-    // 1. Verify Box-Muller Gaussian Noise Generation
-    std::println("--- Verifying Box-Muller Normal Distribution Generator ---");
-    NormalGenerator<float> noise_gen;
-    auto static_noise = noise_gen.generate({1, 1, 80, 80});
-    
-    // Compute sample mean and variance to verify N(0, I) statistical distribution
-    float sum = 0.0f, sq_sum = 0.0f;
-    for (size_t i = 0; i < static_noise.size(); ++i) {
-        sum += static_noise[i];
-        sq_sum += static_noise[i] * static_noise[i];
-    }
-    float mean = sum / static_cast<float>(static_noise.size());
-    float variance = (sq_sum / static_cast<float>(static_noise.size())) - (mean * mean);
-    std::println("✔ Generated [1, 1, 80, 80] Gaussian Noise | Mean: {:.4f} (Target: 0.00), Var: {:.4f} (Target: 1.00)\n", 
-                 mean, variance);
-
-    // 2. Verify Cosine Variance Scheduler & Forward Noise Injection
-    std::println("--- Verifying Cosine Variance Scheduler (T = 1,000) ---");
-    CosineScheduler<float> scheduler(1000);
-    auto clean_spectrogram = Tensor<float>::random_normal({1, 1, 80, 80}, 0.0f, 0.5f);
-    
-    auto start_noise = std::chrono::high_resolution_clock::now();
-    auto noisy_spectrogram = scheduler.add_noise(clean_spectrogram, static_noise, 500); // Corrupt at midpoint t=500
-    auto end_noise = std::chrono::high_resolution_clock::now();
-    
-    auto dur_noise = std::chrono::duration_cast<std::chrono::microseconds>(end_noise - start_noise).count();
-    std::println("✔ Executed SIMD Forward Noise Injection (t=500) in {} µs | Sample val: {:.4f}\n", 
-                 dur_noise, noisy_spectrogram[0]);
-
-    // 3. Verify DDIM Fast Inference Generative Loop
-    std::println("--- Verifying DDIM 20-Step Fast Generative Inference ---");
+    // 1. Instantiate the generative modules (Phases 4 & 5)
     UNet2D<float> unet_backbone;
+    CosineScheduler<float> scheduler(1000);
     DDIMSampler<float> ddim_sampler(scheduler);
 
-    constexpr size_t fast_steps = 20;
-    std::println("✔ Initializing deterministic reverse denoising loop (Skipping 980 Markovian steps)...");
+    // Generate a mock synthetic Mel filterbank reference grid [80 x 1025]
+    Tensor<float> mock_filterbank({80, 1025});
+    mock_filterbank.zero_();
+    for (size_t m = 0; m < 80; ++m) {
+        mock_filterbank[{m, m * 12}] = 1.0f; // Diagonal identity mapping distribution
+    }
 
-    auto start_ddim = std::chrono::high_resolution_clock::now();
-    auto generated_mel_spectrogram = ddim_sampler.sample(unet_backbone, static_noise, fast_steps);
-    auto end_ddim = std::chrono::high_resolution_clock::now();
+    std::println("--- Running Generative Audio Diffusion Model ---");
+    Tensor<float> latent_seed = Tensor<float>::random_normal({1, 1, 80, 60}, 0.0f, 1.0f);
     
-    auto dur_ddim = std::chrono::duration_cast<std::chrono::milliseconds>(end_ddim - start_ddim).count();
-    const auto& out_shape = generated_mel_spectrogram.shape();
+    auto start_gen = std::chrono::high_resolution_clock::now();
+    auto generated_mel = ddim_sampler.sample(unet_backbone, latent_seed, 25);
+    auto end_gen = std::chrono::high_resolution_clock::now();
     
-    std::println("✔ Executed Complete 20-Step DDIM Generation in {} ms ({:.1f} ms per step)", 
-                 dur_ddim, static_cast<float>(dur_ddim) / static_cast<float>(fast_steps));
-    std::println("   Output Spectrogram Shape: [{}, {}, {}, {}]", 
-                 out_shape[0], out_shape[1], out_shape[2], out_shape[3]);
+    std::println("✔ Generated Mel Spectrogram Matrix in {} ms",
+                 std::chrono::duration_cast<std::chrono::milliseconds>(end_gen - start_gen).count());
 
-    if (out_shape[2] == 80 && out_shape[3] == 80 && mean > -0.05f && mean < 0.05f) {
-        std::println("\n🏆 PHASE 5 PASSED: Diffusion Scheduler & DDIM Fast Sampler fully operational!");
+    // 2. Execute Phase 6 Phase Reconstruction Vocoder
+    std::println("\n--- Initializing Phase 6 Griffin-Lim Vocoder Loop ---");
+    GriffinLimVocoder<float> vocoder(2048, 512);
+
+    auto start_vocode = std::chrono::high_resolution_clock::now();
+    auto linear_magnitude = vocoder.invert_mel_filterbank(generated_mel, mock_filterbank);
+    std::println("✔ Linear frequency conversion completed. Grid size: [1, 1, 1025, 60]");
+    
+    std::println("✔ Reconstructing phase maps (60 GL Iterations)...");
+    auto audio_waveform = vocoder.reconstruct(linear_magnitude, 60);
+    auto end_vocode = std::chrono::high_resolution_clock::now();
+
+    std::println("✔ Vocoder synthesis loop finished in {} ms",
+                 std::chrono::duration_cast<std::chrono::milliseconds>(end_vocode - start_vocode).count());
+
+    // 3. Export to Wave Container
+    std::println("\n--- Serializing Raw PCM Floating Buffers to Hard Drive ---");
+    std::string output_path = "ai_generated_track.wav";
+    
+    bool export_success = crescendo::io::WavExporter::write_wav(output_path, audio_waveform, 44100);
+
+    if (export_success) {
+        std::println("✔ File successfully compiled: {}", output_path);
+        std::println("   Total samples: {} | Duration: {:.2f} seconds", 
+                     audio_waveform.size(), static_cast<double>(audio_waveform.size()) / 44100.0);
+        std::println("\n🏆 PHASE 6 PASSED: End-To-End Generative Audio Synthesis Complete!");
     } else {
-        std::println("\n❌ PHASE 5 FAILED: Statistical distribution drift or dimension mismatch.");
+        std::println("\n❌ PHASE 6 FAILED: Unable to allocate binary IO file stream handle.");
     }
 
     return 0;

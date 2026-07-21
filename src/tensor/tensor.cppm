@@ -28,6 +28,13 @@ export namespace crescendo::tensor {
             return t;
         }
 
+        /**
+         * @brief In-place zero initialization of all tensor elements.
+         */
+        void zero_() noexcept {
+            std::fill(data_.begin(), data_.end(), T{0.0});
+        }
+
         // Element access via N-dimensional coordinate index
         [[nodiscard]] T& at(const std::vector<size_t>& indices) {
             return data_[offset(indices)];
@@ -37,9 +44,21 @@ export namespace crescendo::tensor {
             return data_[offset(indices)];
         }
 
-        // Flat index access
+        // Flat 1D index access: tensor[idx]
         [[nodiscard]] T& operator[](size_t idx) { return data_[idx]; }
         [[nodiscard]] const T& operator[](size_t idx) const { return data_[idx]; }
+
+        /**
+         * @brief Multi-dimensional coordinate indexing: tensor[{i, j, k}]
+         * Resolves MSVC error C2679 by accepting braced initializer lists.
+         */
+        [[nodiscard]] T& operator[](std::initializer_list<size_t> indices) {
+            return data_[offset(std::span<const size_t>(indices.begin(), indices.size()))];
+        }
+
+        [[nodiscard]] const T& operator[](std::initializer_list<size_t> indices) const {
+            return data_[offset(std::span<const size_t>(indices.begin(), indices.size()))];
+        }
 
         // Matrix Multiplication (2D tensors only) accelerated by hardware SIMD
         [[nodiscard]] Tensor matmul(const Tensor& other) const {
@@ -109,7 +128,8 @@ export namespace crescendo::tensor {
             }
         }
 
-        [[nodiscard]] size_t offset(const std::vector<size_t>& indices) const {
+        // Optimized span-based offset calculation (prevents dynamic vector allocations during indexing)
+        [[nodiscard]] size_t offset(std::span<const size_t> indices) const {
             if (indices.size() != shape_.size()) throw std::out_of_range("Dimension mismatch.");
             size_t idx = 0;
             for (size_t i = 0; i < indices.size(); ++i) {
@@ -117,6 +137,10 @@ export namespace crescendo::tensor {
                 idx += indices[i] * strides_[i];
             }
             return idx;
+        }
+
+        [[nodiscard]] size_t offset(const std::vector<size_t>& indices) const {
+            return offset(std::span<const size_t>(indices.begin(), indices.size()));
         }
     };
 }

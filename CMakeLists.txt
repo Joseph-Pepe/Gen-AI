@@ -58,7 +58,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 # 7. Core Modular Libraries (Built from scratch, zero dependencies)
 
 # Create the Tensor library containing SIMD, Tensor, Autograd, and AdamW modules
-add_library(crescendo_tensor)
+add_library(crescendo_tensor STATIC)
 target_sources(crescendo_tensor
     PUBLIC
         FILE_SET CXX_MODULES
@@ -73,10 +73,7 @@ target_link_libraries(crescendo_tensor PRIVATE project_warnings simd_optimizatio
 target_enable_cxx26(crescendo_tensor)
 
 # Digital Signal Processing (DSP) Library
-add_library(crescendo_dsp STATIC
-    src/dsp/griffin_lim.cpp
-)
-
+add_library(crescendo_dsp STATIC)
 # Register the C++26 FFT Module file set directly to the DSP library
 target_sources(crescendo_dsp
     PUBLIC
@@ -90,11 +87,7 @@ target_link_libraries(crescendo_dsp PUBLIC crescendo_tensor PRIVATE project_warn
 target_enable_cxx26(crescendo_dsp)
 
 # Neural Network Models Library (U-Net, Attention, Diffusion, Separation)
-add_library(crescendo_models STATIC
-    src/models/diffusion.cpp
-    src/models/separator.cpp
-)
-
+add_library(crescendo_models STATIC)
 target_sources(crescendo_models
     PUBLIC
         FILE_SET CXX_MODULES
@@ -108,7 +101,7 @@ target_link_libraries(crescendo_models PUBLIC crescendo_dsp crescendo_tensor PRI
 target_enable_cxx26(crescendo_models)
 
 # Create the Diffusion library containing Box-Muller Noise, Cosine Scheduler, and DDIM Sampler modules
-add_library(crescendo_diffusion)
+add_library(crescendo_diffusion STATIC)
 target_sources(crescendo_diffusion
     PUBLIC
         FILE_SET CXX_MODULES
@@ -117,9 +110,20 @@ target_sources(crescendo_diffusion
             src/diffusion/scheduler.cppm
             src/diffusion/ddim.cppm
 )
-# Link the main executable against all completed engine modules
-target_link_libraries(crescendo_diffusion PUBLIC crescendo_tensor crescendo_models PRIVATE project_warnings simd_optimizations)
+# Link the main executable against all completed engine modules (consumes tensors and U-nets internally without exposing them in new external header definitions)
+target_link_libraries(crescendo_diffusion PRIVATE crescendo_tensor crescendo_models PRIVATE project_warnings simd_optimizations)
 target_enable_cxx26(crescendo_diffusion)
+
+# Add DSP Griffin-Lim module definition target block
+add_library(crescendo_dsp_vocoder STATIC)
+target_sources(crescendo_dsp_vocoder
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES 
+            src/dsp/griffin_lim.cppm
+)
+target_link_libraries(crescendo_dsp_vocoder PUBLIC crescendo_tensor crescendo_dsp PRIVATE project_warnings simd_optimizations)
+target_enable_cxx26(crescendo_dsp_vocoder)
 
 # Audio I/O & Interactive Editor Engine
 add_library(crescendo_audio STATIC
@@ -130,6 +134,16 @@ add_library(crescendo_audio STATIC
 target_link_libraries(crescendo_audio PUBLIC crescendo_tensor PRIVATE project_warnings)
 target_enable_cxx26(crescendo_audio)
 
+# Add Output Exporter module target block
+add_library(crescendo_audio_io STATIC)
+target_sources(crescendo_audio_io
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES 
+            src/audio/io/wav_writer.cppm
+)
+target_link_libraries(crescendo_audio_io PRIVATE project_warnings)
+target_enable_cxx26(crescendo_audio_io)
 
 # 8. Main CLI Executable
 add_executable(crescendo
@@ -140,6 +154,8 @@ add_executable(crescendo
 target_link_libraries(crescendo PRIVATE 
     crescendo_models 
     crescendo_audio 
+    crescendo_audio_io
+    crescendo_dsp_vocoder
     crescendo_dsp 
     crescendo_tensor
     crescendo_diffusion
@@ -152,7 +168,16 @@ enable_testing()
 
 macro(add_crescendo_test TEST_NAME TEST_FILE)
     add_executable(${TEST_NAME} ${TEST_FILE})
-    target_link_libraries(${TEST_NAME} PRIVATE crescendo_models crescendo_audio crescendo_dsp project_warnings)
+    target_link_libraries(${TEST_NAME} PRIVATE 
+        crescendo_models 
+        crescendo_diffusion
+        crescendo_dsp_vocoder
+        crescendo_audio 
+        crescendo_audio_io
+        crescendo_dsp 
+        crescendo_tensor
+        project_warnings
+    )
     target_enable_cxx26(${TEST_NAME}) # Applied MSVC-safe C++26
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endmacro()
