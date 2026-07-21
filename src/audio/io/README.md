@@ -80,6 +80,18 @@ The `crescendo::io::wav_writer` module provides high-performance, zero-dependenc
 
 When exporting multi-instrument audio from AI source separation pipelines (such as 4-stem Wiener demixing), serializing tracks sequentially creates severe disk I/O bottlenecks. This module introduces **multi-channel sample interleaving** to weave parallel mono buffers into synchronized stereo or multi-track master files, alongside **batch stem exporting** to flush isolated stems to disk simultaneously in both consumer 16-bit PCM integer and professional 32-bit IEEE floating-point bit-depths.
 
+
+### ⚡ Performance Benchmarks (MSVC x64 Release Build)
+
+Note: Benchmarks recorded processing 2.0 seconds of audio at 44,100 Hz (88,200 samples per track) across 4 stem channels on x86_64 architecture.
+
+| Export Operation | Input Channels | Sample Count | Total File Size | Execution Time |
+| :--- | :--- | :--- | :--- | :--- |
+|Batch Stem Export (4x Files) | 4x Mono | 352,800 floats | 705.6 KB (total) | ~9.0 ms |
+|4-Channel Interleaving & Export | 4-Ch Quad | 352,800 floats | 705.6 KB | ~5.0 ms|
+|32-Bit Float Stereo Export | 2-Ch Stereo | 176,400 floats | 705.6 KB | ~3.5 ms|
+
+
 ### ✨ Key Features
 
 * **Multi-Channel Sample Interleaving:** Weaves an arbitrary number of independent mono arrays ($C$ channels of length $N$) into a single sequential byte stream ($L_0, R_0, L_1, R_1\dots$) required for stereo, quadraphonic, and surround-sound WAV headers.
@@ -136,14 +148,3 @@ WavExporter::write_wav("studio_master_32bit.wav", stereo_interleaved, 2, sample_
 ```json?chameleon
 {"component":"LlmGeneratedComponent","props":{"height":"650px","prompt":"Create an interactive Multi-Channel Audio Buffer Interleaving and PCM Quantization Visualizer using HTML5 Canvas or SVG with interactive DOM elements. Objective: Allow the user to explore how independent floating-point audio arrays (Vocals, Drums, Bass, Other) fold into interleaved sequential memory bitstreams, and simulate the acoustic effects of SIMD peak headroom normalization (-0.44 dBFS) during 16-bit PCM quantization vs 32-bit IEEE float export. Data State: Initialize with 4 Stem Channels (Vocals, Drums, Bass, Other), Sample Rate = 44100 Hz, Initial Peak Amplitudes: Vocals = 0.8, Drums = 1.3 (overclocked/clipping!), Bass = 0.6, Other = -0.9. Strategy: Standard Layout with an interactive memory transformation grid at the top and real-time quantization controls below. Inputs: Dropdown for Export Bit-Depth ('16-bit Signed Integer PCM', '32-bit IEEE Floating Point'), Toggle for SIMD Headroom Normalization ('Active (-0.44 dBFS Scale)', 'Disabled (Raw Direct Clamping)'), Slider for Drum Track Peak Amplitude (0.5 to 2.0), and a channel selector (Mono, Stereo 2-Ch, Quad 4-Ch). Behavior: In the top visualizer, render parallel memory blocks representing individual stem channels on the left, with dynamic routing lines weaving them sequentially into a single unified interleaved WAV data chunk on the right (e.g., L0, R0, L1, R1...). Below, render a real-time quantization waveform chart mapping the floating values onto integer bounds [-32768, 32767]. When Drums Peak exceeds 1.0 with Normalization Disabled in 16-bit mode, visually highlight harsh square-wave clipping artifacts in red and display an audio distortion warning. When toggling SIMD Normalization ON, animate the scaling factor shrinking the overall waveform dynamically so the highest peak sits cleanly at 95% (-30400 level), eliminating clipping while preserving mix dynamics. Display a live diagnostic panel calculating: Active Normalization Scaling Factor, Peak Quantization Error (dB), Total Samples Processed, and Estimated Binary File Size in KB.","id":"im_c6908e3c2cef4ffe"}}
 ```
-
-## ⚡ Performance Benchmarks (MSVC x64 Release Build)
-
-Note: Benchmarks recorded processing 2.0 seconds of audio at 44,100 Hz (88,200 samples per track) across 4 stem channels on x86_64 architecture.
-
-| Export Operation | Input Channels | Sample Count | Total File Size | Execution Time |
-| :--- | :--- | :--- | :--- | :--- |
-|Batch Stem Export (4x Files) | 4x Mono | 352,800 floats | 705.6 KB (total) | ~9.0 ms |
-|4-Channel Interleaving & Export | 4-Ch Quad | 352,800 floats | 705.6 KB | ~5.0 ms|
-|32-Bit Float Stereo Export | 2-Ch Stereo | 176,400 floats | 705.6 KB | ~3.5 ms|
-

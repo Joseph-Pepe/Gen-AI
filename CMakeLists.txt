@@ -157,6 +157,20 @@ target_sources(crescendo_audio_io
 target_link_libraries(crescendo_audio_io PUBLIC crescendo_tensor PRIVATE project_warnings)
 target_enable_cxx26(crescendo_audio_io)
 
+# Add GPU Compute Hardware Abstraction Layer library target
+add_library(crescendo_gpu STATIC)
+target_sources(crescendo_gpu
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES 
+            src/gpu/gpu_types.cppm
+            src/gpu/gpu_buffer.cppm
+            src/gpu/gpu_backend.cppm
+            src/gpu/gemm_pipeline.cppm
+)
+target_link_libraries(crescendo_gpu PRIVATE project_warnings)
+target_enable_cxx26(crescendo_gpu)
+
 # 8. Main CLI Executable
 add_executable(crescendo
     src/main.cpp
@@ -172,6 +186,7 @@ target_link_libraries(crescendo PRIVATE
     crescendo_dsp_separation
     crescendo_tensor
     crescendo_diffusion
+    crescendo_gpu
     project_warnings
 )
 target_enable_cxx26(crescendo) # Applied MSVC-safe C++26
