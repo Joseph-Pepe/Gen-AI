@@ -91,10 +91,18 @@ target_enable_cxx26(crescendo_dsp)
 
 # Neural Network Models Library (U-Net, Attention, Diffusion, Separation)
 add_library(crescendo_models STATIC
-    src/models/unet.cpp
-    src/models/attention.cpp
     src/models/diffusion.cpp
     src/models/separator.cpp
+)
+
+target_sources(crescendo_models
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES 
+            src/models/convolution2d.cppm
+            src/models/groupnorm.cppm
+            src/models/attention.cppm
+            src/models/unet.cppm
 )
 target_link_libraries(crescendo_models PUBLIC crescendo_dsp crescendo_tensor PRIVATE project_warnings)
 target_enable_cxx26(crescendo_models)

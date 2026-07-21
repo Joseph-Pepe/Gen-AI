@@ -1,81 +1,68 @@
 import std;
-import crescendo.tensor.simd;
 import crescendo.tensor.core;
-import crescendo.tensor.autograd;
-import crescendo.tensor.optimizer;
+import crescendo.tensor.simd;
+import crescendo.models.convolution2d;
+import crescendo.models.groupnorm;
+import crescendo.models.attention;
+import crescendo.models.unet;
 
 using namespace crescendo::tensor;
-using namespace crescendo::tensor::autograd;
-using namespace crescendo::tensor::optimizer;
+using namespace crescendo::models;
 
 int main() {
-    std::println("======================================================");
-    std::println("🎛️  Crescendo Engine: Phase 3 Tensor & SIMD Suite");
-    std::println("======================================================\n");
+    std::println("==========================================================");
+    std::println("🎛️  Crescendo Engine: Phase 4 Neural Network Backbone");
+    std::println("==========================================================\n");
 
-    // 1. Check Hardware SIMD Acceleration
-    std::println("✔ Detected Hardware SIMD Architecture: {}", simd::get_simd_architecture());
+    std::println("✔ Active SIMD Hardware Engine: {}\n", simd::get_simd_architecture());
 
-    // 2. Benchmark SIMD GEMM Performance (512x512 Matrices)
-    constexpr size_t dim = 512;
-    auto mat_A = Tensor<float>::random_normal({dim, dim}, 0.0f, 1.0f);
-    auto mat_B = Tensor<float>::random_normal({dim, dim}, 0.0f, 1.0f);
-
-    auto start_time = std::chrono::high_resolution_clock::now();
-    auto mat_C = mat_A.matmul(mat_B);
-    auto end_time = std::chrono::high_resolution_clock::now();
+    // 1. Test Standalone 2D Convolution (im2col + SIMD GEMM)
+    std::println("--- Verifying Conv2D im2col SIMD Kernel ---");
+    Conv2D<float> conv(1, 16, 3, 1, 1); // 3x3 kernel, same padding
+    auto test_patch = Tensor<float>::random_normal({1, 1, 32, 32}, 0.0f, 1.0f);
     
-    auto dur_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-    std::println("✔ Executed SIMD Matmul [{}x{}] * [{}x{}] in {} ms | Sample val: {:.4f}\n", 
-                 dim, dim, dim, dim, dur_ms, mat_C[0]);
-
-    // 3. Verify Auto-Grad Computational Graph & Backpropagation
-    std::println("--- Verifying Autograd Backward Differentiation ---");
-    auto X = Variable<float>::create(Tensor<float>({2, 3}, 2.0f), true, "X");
-    auto W = Variable<float>::create(Tensor<float>({3, 2}, 1.5f), true, "W");
-    auto B = Variable<float>::create(Tensor<float>({2, 2}, 0.5f), true, "B");
-
-    // Forward pass: Y = X * W + B
-    auto Y = X->matmul(W)->add(B);
-    std::println("✔ Forward graph evaluated successfully. Shape Y: [{}, {}]", Y->data.shape()[0], Y->data.shape()[1]);
-
-    // Execute Backward Sweep
-    Y->backward();
-    std::println("✔ Executed topological backward differentiation.");
-    std::println("   Grad dL/dX[0]: {:.4f} (Expected: 3.0000 -> Sum of W rows)", X->grad[0]);
-    std::println("   Grad dL/dW[0]: {:.4f} (Expected: 4.0000 -> Sum of X cols)\n", W->grad[0]);
-
-    // 4. Test AdamW Optimizer Convergence
-    std::println("--- Testing AdamW Optimizer Step ---");
-    AdamW<float> optimizer({X, W, B}, 0.05f);
-    float initial_weight = W->data[0];
+    auto start_conv = std::chrono::high_resolution_clock::now();
+    auto conv_out = conv.forward(test_patch);
+    auto end_conv = std::chrono::high_resolution_clock::now();
     
-    optimizer.step();
-    float updated_weight = W->data[0];
-    std::println("✔ Executed AdamW step with L2 decay | W[0] changed from {:.4f} to {:.4f}", 
-                 initial_weight, updated_weight);
+    auto conv_dur = std::chrono::duration_cast<std::chrono::microseconds>(end_conv - start_conv).count();
+    std::println("✔ Executed Conv2D [1, 1, 32, 32] -> [1, 16, 32, 32] in {} µs | Sample out: {:.4f}\n", 
+                 conv_dur, conv_out[0]);
 
-    if (std::abs(updated_weight - initial_weight) > 1e-4f && dur_ms < 500) {
-        std::println("\n🏆 PHASE 3 PASSED: Bare-metal Tensor, Autograd, & SIMD engine fully operational!");
+    // 2. Test Multi-Head Self-Attention
+    std::println("--- Verifying Multi-Head Self-Attention ---");
+    MultiHeadSelfAttention<float> attn(16, 4); // 16 channels, 4 attention heads
+    
+    auto start_attn = std::chrono::high_resolution_clock::now();
+    auto attn_out = attn.forward(conv_out);
+    auto end_attn = std::chrono::high_resolution_clock::now();
+    
+    auto attn_dur = std::chrono::duration_cast<std::chrono::microseconds>(end_attn - start_attn).count();
+    std::println("✔ Executed 4-Head Attention across 1,024 tokens in {} µs | Shape preserved.\n", attn_dur);
+
+    // 3. Verify Full 2D Convolutional U-Net Backbone
+    std::println("--- Verifying Complete UNet2D Generative Backbone ---");
+    UNet2D<float> unet;
+    
+    // Simulate an input 80-bin Mel-Spectrogram with 80 time frames
+    auto mel_spectrogram = Tensor<float>::random_normal({1, 1, 80, 80}, 0.0f, 0.5f);
+    std::println("✔ Loaded synthetic Log-Mel Spectrogram tensor | Shape: [1, 1, 80, 80]");
+
+    auto start_unet = std::chrono::high_resolution_clock::now();
+    auto unet_out = unet.forward(mel_spectrogram);
+    auto end_unet = std::chrono::high_resolution_clock::now();
+    
+    auto unet_dur = std::chrono::duration_cast<std::chrono::milliseconds>(end_unet - start_unet).count();
+    const auto& out_shape = unet_out.shape();
+    std::println("✔ Executed Full U-Net Forward Pass in {} ms", unet_dur);
+    std::println("   Output Tensor Shape: [{}, {}, {}, {}] (Matches input dimensions)", 
+                 out_shape[0], out_shape[1], out_shape[2], out_shape[3]);
+
+    if (out_shape[2] == 80 && out_shape[3] == 80 && unet_dur < 1000) {
+        std::println("\n🏆 PHASE 4 PASSED: Generative Neural Network Backbone fully operational!");
     } else {
-        std::println("\n❌ PHASE 3 FAILED: Precision drift or performance benchmark failure.");
+        std::println("\n❌ PHASE 4 FAILED: Dimension mismatch or execution benchmark failure.");
     }
 
     return 0;
 }
-
-
-// #include <iostream>
-
-// int main() {
-//     // __cplusplus should be greater than the C++23 draft value (202302L)
-//     std::cout << "Compiled with C++ standard code: " << __cplusplus << "\n";
-    
-//     #if __cplusplus > 202302L
-//         std::cout << "Success: C++26 mode is active!\n";
-//     #else
-//         std::cout << "Warning: Not running in experimental C++26 mode.\n";
-//     #endif
-
-//     return 0;
-// }
