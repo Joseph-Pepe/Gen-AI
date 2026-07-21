@@ -65,16 +65,23 @@ add_library(crescendo_tensor STATIC
     src/tensor/optimizer.cpp
 )
 target_link_libraries(crescendo_tensor PRIVATE project_warnings simd_optimizations)
-target_enable_cxx26(crescendo_tensor) # Applied MSVC-safe C++26 helper
+target_enable_cxx26(crescendo_tensor) 
 
 # Digital Signal Processing (DSP) Library
 add_library(crescendo_dsp STATIC
-    src/dsp/fft.cpp
     src/dsp/stft.cpp
     src/dsp/mel_filterbank.cpp
     src/dsp/griffin_lim.cpp
 )
+
+# Register the C++26 FFT Module file set directly to the DSP library
+target_sources(crescendo_dsp
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES src/dsp/fast_fourier_transform.cppm
+)
 target_link_libraries(crescendo_dsp PUBLIC crescendo_tensor PRIVATE project_warnings simd_optimizations)
+target_enable_cxx26(crescendo_dsp)
 
 # Neural Network Models Library (U-Net, Attention, Diffusion, Separation)
 add_library(crescendo_models STATIC
@@ -84,6 +91,7 @@ add_library(crescendo_models STATIC
     src/models/separator.cpp
 )
 target_link_libraries(crescendo_models PUBLIC crescendo_dsp crescendo_tensor PRIVATE project_warnings)
+target_enable_cxx26(crescendo_models)
 
 # Audio I/O & Interactive Editor Engine
 add_library(crescendo_audio STATIC
@@ -92,6 +100,8 @@ add_library(crescendo_audio STATIC
     src/audio/m4a_codec.cpp
 )
 target_link_libraries(crescendo_audio PUBLIC crescendo_tensor PRIVATE project_warnings)
+target_enable_cxx26(crescendo_audio)
+
 
 # 8. Main CLI Executable
 add_executable(crescendo
@@ -119,6 +129,6 @@ macro(add_crescendo_test TEST_NAME TEST_FILE)
 endmacro()
 
 # Define your unit tests
-add_crescendo_test(test_fft tests/test_fft.cpp)
+add_crescendo_test(test_fft tests/test_fast_fourier_transform.cpp)
 add_crescendo_test(test_autograd tests/test_autograd.cpp)
 add_crescendo_test(test_audio_io tests/test_audio_io.cpp)
