@@ -137,26 +137,6 @@ target_sources(crescendo_dsp_separation
 target_link_libraries(crescendo_dsp_separation PUBLIC crescendo_tensor crescendo_models PRIVATE project_warnings simd_optimizations)
 target_enable_cxx26(crescendo_dsp_separation)
 
-# Audio I/O & Interactive Editor Engine
-add_library(crescendo_audio STATIC
-    src/audio/editor.cpp
-    src/audio/wav_parser.cpp
-    src/audio/m4a_codec.cpp
-)
-target_link_libraries(crescendo_audio PUBLIC crescendo_tensor PRIVATE project_warnings)
-target_enable_cxx26(crescendo_audio)
-
-# Add Output Exporter module target block
-add_library(crescendo_audio_io STATIC)
-target_sources(crescendo_audio_io
-    PUBLIC
-        FILE_SET CXX_MODULES
-        FILES 
-            src/audio/io/wav_writer.cppm
-)
-target_link_libraries(crescendo_audio_io PUBLIC crescendo_tensor PRIVATE project_warnings)
-target_enable_cxx26(crescendo_audio_io)
-
 # Add GPU Compute Hardware Abstraction Layer library target
 add_library(crescendo_gpu STATIC)
 target_sources(crescendo_gpu
@@ -168,8 +148,44 @@ target_sources(crescendo_gpu
             src/gpu/gpu_backend.cppm
             src/gpu/gemm_pipeline.cppm
 )
-target_link_libraries(crescendo_gpu PRIVATE project_warnings)
+target_link_libraries(crescendo_gpu PRIVATE project_warnings simd_optimizations)
 target_enable_cxx26(crescendo_gpu)
+
+# Add Native ALAC Lossless Codec & Bitstream I/O library target
+add_library(crescendo_audio_codec STATIC)
+target_sources(crescendo_audio_codec
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES 
+            src/audio/codec/bitstream.cppm
+            src/audio/codec/lpcm_writer.cppm
+            src/audio/codec/alac_encoder.cppm
+)
+# Attached SIMD optimizations and project warnings for LPC residual acceleration
+target_link_libraries(crescendo_audio_codec PUBLIC crescendo_tensor PRIVATE project_warnings simd_optimizations)
+target_enable_cxx26(crescendo_audio_codec)
+
+# Audio I/O & Interactive Editor Engine
+add_library(crescendo_audio_io STATIC)
+target_sources(crescendo_audio_io
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES 
+            src/audio/io/wav_writer.cppm
+            src/audio/io/m4a_writer.cppm
+
+)
+target_link_libraries(crescendo_audio_io PUBLIC crescendo_tensor crescendo_audio_codec PRIVATE project_warnings)
+target_enable_cxx26(crescendo_audio_io)
+
+# Legacy Audio I/O & Interactive Editor Engine
+add_library(crescendo_audio STATIC
+    src/audio/editor.cpp
+    src/audio/wav_parser.cpp
+    src/audio/m4a_codec.cpp
+)
+target_link_libraries(crescendo_audio PUBLIC crescendo_tensor PRIVATE project_warnings)
+target_enable_cxx26(crescendo_audio)
 
 # 8. Main CLI Executable
 add_executable(crescendo
@@ -181,6 +197,7 @@ target_link_libraries(crescendo PRIVATE
     crescendo_models 
     crescendo_audio 
     crescendo_audio_io
+    crescendo_audio_codec
     crescendo_dsp_vocoder
     crescendo_dsp 
     crescendo_dsp_separation
@@ -202,6 +219,8 @@ macro(add_crescendo_test TEST_NAME TEST_FILE)
         crescendo_dsp_vocoder
         crescendo_audio 
         crescendo_audio_io
+        crescendo_audio_codec
+        crescendo_gpu
         crescendo_dsp 
         crescendo_tensor
         project_warnings
