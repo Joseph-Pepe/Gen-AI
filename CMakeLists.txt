@@ -208,6 +208,14 @@ target_link_libraries(crescendo PRIVATE
 )
 target_enable_cxx26(crescendo) # Applied MSVC-safe C++26
 
+# Conditionally enable Apple Metal support on macOS/iOS builds
+if(APPLE)
+    target_compile_definitions(crescendo_gpu PUBLIC CRESCENDO_ENABLE_METAL=1)
+    find_library(METAL_FRAMEWORK Metal REQUIRED)
+    find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    target_link_libraries(crescendo_gpu PUBLIC ${METAL_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
+endif()
+
 # 9. Test Suite Setup
 enable_testing()
 

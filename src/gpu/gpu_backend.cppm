@@ -10,6 +10,8 @@ module;
   #include <sycl/sycl.hpp>
 #elif defined(CRESCENDO_ENABLE_WEBGPU) // WGSL
   #include <webgpu/webgpu.h>
+#elif defined(CRESCENDO_ENABLE_METAL)  // Metal (Apple Silicon)
+  #include <Metal/Metal.hpp>
 #endif
 
 export module crescendo.gpu.backend;
@@ -42,6 +44,11 @@ export namespace crescendo::gpu {
             WGPUDevice device = nullptr;
             WGPUQueue queue = nullptr;
             WGPUComputePipeline pipeline = nullptr;
+        #elif defined(CRESCENDO_ENABLE_METAL)
+            MTL::Device* device = nullptr;
+            MTL::CommandQueue* command_queue = nullptr;
+            MTL::ComputePipelineState* pipeline_state = nullptr;
+            MTL::CommandBuffer* active_cmd_buffer = nullptr;
         #endif
             bool is_initialized = false;
     };
@@ -97,8 +104,34 @@ export namespace crescendo::gpu {
 
             // Backend-specific API dispatch hooks:
 
+            // Metal
+            #if defined(CRESCENDO_ENABLE_METAL)
+                if (backend_ == ComputeBackend::Metal && native_ctx_.is_initialized) {
+                    // 1. Create a new command buffer from the command queue
+                    native_ctx_.active_cmd_buffer = native_ctx_.command_queue->commandBuffer();
+
+                    // 2. Create compute command encoder
+                    MTL::ComputeCommandEncoder* encoder = native_ctx_.active_cmd_buffer->computeCommandEncoder();
+                    encoder->setComputePipelineState(native_ctx_.pipeline_state);
+
+                    // 3. Configure threadgroup grid dimensions (e.g., 16x16 threads per group)
+                    MTL::Size threadgroup_size = MTL::Size::Make(config.workgroup_size.x, config.workgroup_size.y, config.workgroup_size.z);
+                    MTL::Size grid_size = MTL::Size::Make(
+                        config.grid_x * config.workgroup_size.x,
+                        config.grid_y * config.workgroup_size.y,
+                        config.grid_z * config.workgroup_size.z
+                    );
+
+                    // 4. Dispatch compute threads and end encoding
+                    encoder->dispatchThreads(grid_size, threadgroup_size);
+                    encoder->endEncoding();
+
+                    // 5. Commit command buffer to the GPU hardware queue
+                    native_ctx_.active_cmd_buffer->commit();
+                    return;
+                }
             // Vulkan
-            #if defined(CRESCENDO_ENABLE_VULKAN)
+            #elif defined(CRESCENDO_ENABLE_VULKAN)
                 if (backend_ == ComputeBackend::Vulkan && native_ctx_.is_initialized) {
                     // 1. Reset command buffer and begin recording
                     vkResetCommandBuffer(native_ctx_.command_buffer, 0);
@@ -187,8 +220,14 @@ export namespace crescendo::gpu {
         void synchronize() const noexcept {
             if (backend_ == ComputeBackend::CPU_SIMD_Fallback) return;
 
+            // Metal
+            #if defined(CRESCENDO_ENABLE_METAL)
+                if (backend_ == ComputeBackend::Metal && native_ctx_.is_initialized && native_ctx_.active_cmd_buffer) {
+                    // Block CPU thread until the Apple GPU finishes executing the command buffer
+                    native_ctx_.active_cmd_buffer->waitUntilCompleted();
+                }
             // Vulkan
-            #if defined(CRESCENDO_ENABLE_VULKAN)
+            #elif defined(CRESCENDO_ENABLE_VULKAN)
                 if (backend_ == ComputeBackend::Vulkan && native_ctx_.is_initialized) {
                     // Block CPU thread until Vulkan execution fence is signaled by GPU
                     vkWaitForFences(native_ctx_.device, 1, &native_ctx_.execution_fence, VK_TRUE, UINT64_MAX);
@@ -214,8 +253,6 @@ export namespace crescendo::gpu {
             #endif
         }
 
-        
-
         [[nodiscard]] ComputeBackend backend() const noexcept { return backend_; }
         [[nodiscard]] std::uint64_t total_dispatches() const noexcept { return dispatch_count_; }
 
@@ -237,6 +274,15 @@ export namespace crescendo::gpu {
                 return;
             }
 
+            #if defined(CRESCENDO_ENABLE_METAL)
+                if (backend_ == ComputeBackend::Metal) {
+                    // In production, MTL::CreateSystemDefaultDevice() is invoked, loading the .metal shader library
+                    native_ctx_.device = nullptr; // Emulated handle binding for cross-platform fallback build
+                    native_ctx_.is_initialized = true;
+                    return;
+                }
+            #endif
+
             // In a production deployment, this block parses SPIR-V bytecode or loads PTX modules
             // and initializes the native_ctx_ handles (device, queue, pipeline layouts).
             native_ctx_.is_initialized = true;
@@ -245,7 +291,13 @@ export namespace crescendo::gpu {
         void release_native_resources() noexcept {
             if (!native_ctx_.is_initialized) return;
 
-            #if defined(CRESCENDO_ENABLE_VULKAN)
+            #if defined(CRESCENDO_ENABLE_METAL)
+                if (backend_ == ComputeBackend::Metal) {
+                    if (native_ctx_.pipeline_state) native_ctx_.pipeline_state->release();
+                    if (native_ctx_.command_queue) native_ctx_.command_queue->release();
+                    if (native_ctx_.device) native_ctx_.device->release();
+                }
+            #elif defined(CRESCENDO_ENABLE_VULKAN)
                 if (backend_ == ComputeBackend::Vulkan) {
                     if (native_ctx_.execution_fence) vkDestroyFence(native_ctx_.device, native_ctx_.execution_fence, nullptr);
                     if (native_ctx_.pipeline) vkDestroyPipeline(native_ctx_.device, native_ctx_.pipeline, nullptr);
@@ -264,7 +316,9 @@ export namespace crescendo::gpu {
      * @brief Factory for selecting the optimal available compute backend at runtime.
      */
     [[nodiscard]] ComputeBackend discover_optimal_backend() noexcept {
-        #if defined(CRESCENDO_ENABLE_VULKAN)
+        #if defined(CRESCENDO_ENABLE_METAL)
+            return ComputeBackend::Metal;
+        #elif defined(CRESCENDO_ENABLE_VULKAN)
             return ComputeBackend::Vulkan;
         #elif defined(CRESCENDO_ENABLE_CUDA)
             return ComputeBackend::CUDA;

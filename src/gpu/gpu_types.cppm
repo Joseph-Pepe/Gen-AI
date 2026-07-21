@@ -10,7 +10,8 @@ export namespace crescendo::gpu {
         CUDA = 1,
         SYCL = 2,
         WebGPU = 3,
-        CPU_SIMD_Fallback = 4
+        Metal = 4,
+        CPU_SIMD_Fallback = 5
     };
 
     enum class MemoryProperty : std::uint8_t {
@@ -66,6 +67,7 @@ export namespace crescendo::gpu {
             case ComputeBackend::CUDA:              return "NVIDIA CUDA (PTX / Native)";
             case ComputeBackend::SYCL:              return "Intel / Khronos SYCL (OneAPI)";
             case ComputeBackend::WebGPU:            return "WebGPU (WGSL Compute Pipelines)";
+            case ComputeBackend::Metal:             return "Apple Metal (Metal-cpp / MSL Shaders)";
             case ComputeBackend::CPU_SIMD_Fallback: return "Host CPU SIMD Fallback (AVX2/NEON)";
             default:                                return "Unknown Backend";
         }

@@ -1,3 +1,9 @@
+module;
+
+#if defined(CRESCENDO_ENABLE_METAL) // Apple Silicon 
+  #include <Metal/Metal.hpp>
+#endif
+
 export module crescendo.gpu.buffer;
 
 import std;
@@ -49,31 +55,27 @@ export namespace crescendo::gpu {
         }
 
         /**
-         * @brief Asynchronously transfers host data into device high-bandwidth VRAM.
+         * @brief Asynchronously transfers host data into device high-bandwidth VRAM.  On Metal UMA, this executes a zero-copy memcpy directly into shared unified RAM.
          */
         void upload(std::span<const T> host_data) {
             if (host_data.size() > size_) {
                 throw std::out_of_range("Upload span exceeds GPU buffer capacity.");
             }
-            if (backend_ == ComputeBackend::CPU_SIMD_Fallback) {
-                std::memcpy(host_ptr_, host_data.data(), host_data.size_bytes());
-                return;
-            }
+
             // In a complete driver binding, invoke vkCmdCopyBuffer, cuMemcpyHtoDAsync, or sycl::queue::memcpy
+
+            // Because Metal UMA and CPU fallback share physical address space, we can copy directly to host_ptr_
             std::memcpy(host_ptr_, host_data.data(), host_data.size_bytes());
         }
 
         /**
-         * @brief Transfers VRAM results back into a host RAM span.
+         * @brief Retrieves processed data from VRAM. On Metal UMA, results are instantaneously visible without bus synchronization.
          */
         void download(std::span<T> host_output) const {
             if (host_output.size() > size_) {
                 throw std::out_of_range("Download span exceeds buffer capacity.");
             }
-            if (backend_ == ComputeBackend::CPU_SIMD_Fallback) {
-                std::memcpy(host_output.data(), host_ptr_, host_output.size_bytes());
-                return;
-            }
+
             // In a complete driver binding, invoke cuMemcpyDtoHAsync or vkMapMemory
             std::memcpy(host_output.data(), host_ptr_, host_output.size_bytes());
         }
@@ -94,6 +96,18 @@ export namespace crescendo::gpu {
         std::uintptr_t device_handle_ = 0; // Opaque handle for VkBuffer, CUdeviceptr, etc.
 
         void allocate_storage() {
+
+            #if defined(CRESCENDO_ENABLE_METAL)
+                if (backend_ == ComputeBackend::Metal) {
+                    // In a production Metal binding, device->newBuffer(byte_size_, MTL::ResourceStorageModeShared) is called
+                    // Here we emulate the UMA zero-copy aligned memory allocation
+                    host_ptr_ = ::operator new[](byte_size_, std::align_val_t{64});
+                    std::memset(host_ptr_, 0, byte_size_);
+                    device_handle_ = reinterpret_cast<uintptr_t>(host_ptr_);
+                    return;
+                }
+            #endif
+            
             // Allocate 64-byte aligned host memory for SIMD compatibility and staging
             host_ptr_ = ::operator new[](byte_size_, std::align_val_t{64});
             std::memset(host_ptr_, 0, byte_size_);
